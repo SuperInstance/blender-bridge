@@ -1,0 +1,21 @@
+{
+  "ply": "synthetic_points.ply",
+  "synthetic": true,
+  "ply_format": "binary_little_endian",
+  "points_in_ply": 40000,
+  "color_source": "f_dc (SH DC decoded)",
+  "extra_properties": [],
+  "rendered_points": 40000,
+  "stride": 1,
+  "bounds_span": 5.726,
+  "engine": "CYCLES CPU",
+  "samples": 48,
+  "res": [
+    960,
+    540
+  ],
+  "render_png": "render.png",
+  "t_read_s": 0.08,
+  "t_render_s": 1.65,
+  "ladder": "rung 1: instanced points, single material; colors decoded and stored as the 'Col' attribute for rung 2; scales/rotations parsed (see extra_properties) for rung 3 (true gaussians)"
+}
