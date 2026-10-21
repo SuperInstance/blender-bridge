@@ -45,13 +45,16 @@ numpy).
 ### The ladder (stated, not hidden)
 
 1. **Done** — instanced points, single principled material, beauty rig,
-   receipts.
-2. **Next** — per-instance COLOR: the `Col` attribute is already
-   decoded and stored; quantized material buckets or geometry-node
-   instance coloring.
+   receipts (`render.png`).
+2. **Done (2026-10-21)** — per-instance COLOR via material buckets:
+   points quantized 4×4×4 by decoded RGB, one instancer-dot per bucket
+   with its own material. Proven on a synthetic **3DGS-dialect PLY**
+   (30k gaussians with `f_dc_*`/`opacity`/`scale_*`/`rot_*` — the SH DC
+   decode carries the color; the receipt says which source it used):
+   `render_splat.png`, 18 buckets, pixel-verified color, 1.96 s.
 3. **Then** — true gaussian splats: per-gaussian covariances from
    `scale_*` / `rot_*` evaluated in a shader (the parameters are
-   already parsed through).
+   already parsed and reported in the receipt).
 
 ## Environment
 

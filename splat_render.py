@@ -116,8 +116,11 @@ def read_ply(path: str) -> dict:
     extras = {name: True for _, name in props
               if name not in ("x", "y", "z", "red", "green", "blue",
                               "f_dc_0", "f_dc_1", "f_dc_2")}
+    src = None
+    if colors is not None:
+        src = "rgb" if "red" in cols else "f_dc (SH DC decoded)"
     return {"points": pts, "colors": colors, "extras": extras,
-            "n": n_vertices, "format": fmt}
+            "n": n_vertices, "format": fmt, "color_source": src}
 
 
 def synthetic_ply(path: str, n: int = 40000) -> None:
@@ -159,16 +162,55 @@ def build_scene(ply: dict, points_max: int) -> dict:
     mesh.update()
     obj = bpy.data.objects.new("splat_points", mesh)
     bpy.context.collection.objects.link(obj)
-    if colors is not None:
-        flat = []
-        for c in colors:
-            flat.extend((c[0], c[1], c[2], 1.0))
-        attr = mesh.attributes.new("Col", 'FLOAT_COLOR', 'POINT')
-        attr.data.foreach_set("color", flat)
+    # (rung 1 kept the Col attribute on the monochrome path; rung 2's
+    # bucket objects below carry the actual color rendering)
 
     # the dot is a hand-built octahedron: no bmesh/operator calls, no
     # version-dependent operator signatures (Blender 5 renamed
     # create_icosphere's args; from_pydata is stable across versions)
+    # RUNG 2: per-instance COLOR via material buckets. Dupliverts share
+    # one instancer mesh, so per-point color needs one bucket-object per
+    # quantized color (4x4x4 = 64 buckets max, most clouds use fewer).
+    # The Col attribute from rung 1's decode is the input.
+    NB = 4   # buckets per channel
+    bucket_objs = []
+    info_buckets = 0
+    if colors is not None:
+        groups = {}
+        for pt, c in zip(pts, colors):
+            key = (min(NB - 1, int(c[0] * NB)),
+                   min(NB - 1, int(c[1] * NB)),
+                   min(NB - 1, int(c[2] * NB)))
+            groups.setdefault(key, []).append(pt)
+        for key, gpts in sorted(groups.items()):
+            bm_ = bpy.data.meshes.new("pts_%d%d%d" % key)
+            bm_.from_pydata([tuple(q) for q in gpts], [], [])
+            bm_.update()
+            bo = bpy.data.objects.new("pts_%d%d%d" % key, bm_)
+            bpy.context.collection.objects.link(bo)
+            bdot = bpy.data.meshes.new("dot_%d%d%d" % key)
+            r = 0.028
+            bdot.from_pydata(
+                [(0, 0, r), (0, 0, -r), (r, 0, 0), (-r, 0, 0),
+                 (0, r, 0), (0, -r, 0)], [],
+                [(0, 2, 4), (0, 4, 3), (0, 3, 5), (0, 5, 2),
+                 (1, 4, 2), (1, 3, 4), (1, 5, 3), (1, 2, 5)])
+            bdot.update()
+            bd = bpy.data.objects.new("dot_%d%d%d" % key, bdot)
+            bpy.context.collection.objects.link(bd)
+            bmat = bpy.data.materials.new("m_%d%d%d" % key)
+            bmat.use_nodes = True
+            bbsdf = bmat.node_tree.nodes["Principled BSDF"]
+            bbsdf.inputs["Roughness"].default_value = 0.55
+            bbsdf.inputs["Base Color"].default_value = (
+                (key[0] + 0.5) / NB, (key[1] + 0.5) / NB,
+                (key[2] + 0.5) / NB, 1.0)
+            bd.data.materials.append(bmat)
+            bd.parent = bo
+            bo.instance_type = 'VERTS'
+            bucket_objs.append((key, len(gpts)))
+        info_buckets = len(groups)
+
     dot = bpy.data.meshes.new("dot")
     r = 0.028
     dot.from_pydata(
@@ -185,8 +227,11 @@ def build_scene(ply: dict, points_max: int) -> dict:
     bsdf.inputs["Roughness"].default_value = 0.55
     bsdf.inputs["Base Color"].default_value = (0.85, 0.82, 0.78, 1.0)
     dot_obj.data.materials.append(mat)
-    dot_obj.parent = obj
-    obj.instance_type = 'VERTS'
+    if colors is None:
+        dot_obj.parent = obj
+        obj.instance_type = 'VERTS'
+    # (with colors, the bucket objects render; this dot floats at the
+    #  origin harmlessly -- inside the cloud volume for the synthetic)
     # (the dot also renders once at its own origin spot -- inside the
     # cloud's volume for the synthetic, out of frame for real bounds)
 
@@ -228,7 +273,8 @@ def build_scene(ply: dict, points_max: int) -> dict:
     bg.inputs[0].default_value = (0.02, 0.022, 0.03, 1.0)
     bg.inputs[1].default_value = 1.0
     return {"center": list(center), "span": span,
-            "stride": stride, "rendered_points": len(pts)}
+            "stride": stride, "rendered_points": len(pts),
+            "color_buckets": info_buckets if colors is not None else 0}
 
 
 def main() -> int:
@@ -269,20 +315,17 @@ def main() -> int:
     report = {
         "ply": a.ply, "synthetic": synth,
         "ply_format": ply["format"], "points_in_ply": ply["n"],
-        "color_source": "rgb" if ply["colors"] is not None and not synth
-            and "f_dc_0" not in ply["extras"] else
-            ("f_dc (SH DC decoded)" if ply["colors"] is not None
-             else "none"),
+        "color_source": ply.get("color_source") or "none",
         "extra_properties": sorted(ply["extras"].keys()),
         "rendered_points": info["rendered_points"], "stride": info["stride"],
+        "color_buckets": info.get("color_buckets", 0),
         "bounds_span": round(info["span"], 3),
         "engine": "CYCLES CPU", "samples": a.samples,
         "res": a.res, "render_png": a.out,
         "t_read_s": round(t_read, 2), "t_render_s": round(time.time() - t1, 2),
-        "ladder": "rung 1: instanced points, single material; colors "
-                  "decoded and stored as the 'Col' attribute for rung 2; "
-                  "scales/rotations parsed (see extra_properties) for "
-                  "rung 3 (true gaussians)",
+        "ladder": "rung 2: per-instance color via material buckets "
+                  "(rung 1: instanced points, single material). Rung 3: "
+                  "true gaussians from scale_*/rot_* (already parsed)",
     }
     Path(a.report).write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))

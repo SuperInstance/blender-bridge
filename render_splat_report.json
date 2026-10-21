@@ -1,0 +1,31 @@
+{
+  "ply": "synthetic_splat.ply",
+  "synthetic": false,
+  "ply_format": "binary_little_endian",
+  "points_in_ply": 30000,
+  "color_source": "f_dc (SH DC decoded)",
+  "extra_properties": [
+    "opacity",
+    "rot_0",
+    "rot_1",
+    "rot_2",
+    "rot_3",
+    "scale_0",
+    "scale_1",
+    "scale_2"
+  ],
+  "rendered_points": 30000,
+  "stride": 1,
+  "color_buckets": 18,
+  "bounds_span": 5.716,
+  "engine": "CYCLES CPU",
+  "samples": 48,
+  "res": [
+    960,
+    540
+  ],
+  "render_png": "render_splat.png",
+  "t_read_s": 0.05,
+  "t_render_s": 1.7,
+  "ladder": "rung 2: per-instance color via material buckets (rung 1: instanced points, single material). Rung 3: true gaussians from scale_*/rot_* (already parsed)"
+}
